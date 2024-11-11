@@ -8,5 +8,7 @@ const config = getDefaultConfig(__dirname, {
 });
 
 config.resolver.assetExts.push('db');
+config.resolver.assetExts.push('bin');
+config.transformer.inlineRequires = true
 
 module.exports = config;
