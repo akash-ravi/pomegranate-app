@@ -2,8 +2,9 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { SplashScreen, Stack } from 'expo-router';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useColorScheme } from 'react-native';
+import { connectToDatabase, createTables } from '../db/db';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -14,6 +15,15 @@ export const unstable_settings = {
   // Ensure that reloading on `/modal` keeps a back button present.
   initialRouteName: '(tabs)',
 };
+
+const loadData = async () => {
+  try {
+    const db = connectToDatabase();
+    await createTables(db);
+  } catch (error) {
+    console.error(error);
+  }
+}
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -33,6 +43,7 @@ export default function RootLayout() {
     if (loaded) {
       SplashScreen.hideAsync();
     }
+    loadData()
   }, [loaded]);
 
   if (!loaded) {
