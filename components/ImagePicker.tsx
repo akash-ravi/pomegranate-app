@@ -8,6 +8,8 @@ import { addHistoryItem, connectToDatabase } from '../db/db';
 import { router } from "expo-router";
 import * as tf from '@tensorflow/tfjs'
 import { bundleResourceIO, decodeJpeg } from '@tensorflow/tfjs-react-native'
+import * as ImageManipulator from 'expo-image-manipulator';
+
 
 const modelJSON = require('../assets/model/model.json')
 const modelWeights = require('../assets/model/weights.bin')
@@ -18,7 +20,7 @@ type ImageState = {
 }
 
 const initialImageState: ImageState = {
-  uri: null,
+  uri: "",
   filename: "",
 }
 
@@ -41,38 +43,103 @@ const loadModel = async()=>{
       return model
   }
 
-  const transformImageToTensor = async (uri)=>{
-    //.ts: const transformImageToTensor = async (uri:string):Promise<tf.Tensor>=>{
-    //read the image as base64
-      const img64 = await FileSystem.readAsStringAsync(uri, {encoding:FileSystem.EncodingType.Base64})
-      const imgBuffer =  tf.util.encodeString(img64, 'base64').buffer
-      const raw = new Uint8Array(imgBuffer)
-      let imgTensor = decodeJpeg(raw)
-      const scalar = tf.scalar(255)
-    //resize the image
-      imgTensor = tf.image.resizeNearestNeighbor(imgTensor, [224, 224])
-    //normalize; if a normalization layer is in the model, this step can be skipped
-      const tensorScaled = imgTensor.div(scalar)
-    //final shape of the rensor
-      const img = tf.reshape(tensorScaled, [1,224,224,3])
-      return img
+  // const transformImageToTensor = async (uri : string)=>{
+  //   //.ts: const transformImageToTensor = async (uri:string):Promise<tf.Tensor>=>{
+  //   //read the image as base64
+  //     const img64 = await FileSystem.readAsStringAsync(uri, {encoding:FileSystem.EncodingType.Base64})
+  //     const imgBuffer =  tf.util.encodeString(img64, 'base64').buffer
+  //     const raw = new Uint8Array(imgBuffer)
+  //     let imgTensor = decodeJpeg(raw)
+  //     const scalar = tf.scalar(255)
+  //   //resize the image
+  //     imgTensor = tf.image.resizeNearestNeighbor(imgTensor, [224, 224])
+  //   //normalize; if a normalization layer is in the model, this step can be skipped
+  //     const tensorScaled = imgTensor.div(scalar)
+  //   //final shape of the rensor
+  //     const img = tf.reshape(tensorScaled, [1,224,224,3])
+  //     return img
+  // }
+  // const transformImageToTensor = async (uri) => {
+  //   try {
+  //     console.log("Reading image from:", uri);
+  //     const img64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  //     console.log("Image read as base64 string.");
+  //     const imgBuffer = tf.util.encodeString(img64, 'base64').buffer;
+  //     const raw = new Uint8Array(imgBuffer);
+  //     console.log("Image buffer created.");
+      
+  //     let imgTensor = decodeJpeg(raw);
+  //     console.log("Image decoded into tensor:", imgTensor);
+      
+  //     const scalar = tf.scalar(255);
+  //     imgTensor = tf.image.resizeNearestNeighbor(imgTensor, [224, 224]);
+  //     const tensorScaled = imgTensor.div(scalar);
+  //     const img = tf.reshape(tensorScaled, [1, 224, 224, 3]);
+      
+  //     console.log("Tensor transformed and reshaped:", img);
+  //     return img;
+  //   } catch (error) {
+  //     console.error("Error in transforming image to tensor:", error);
+  //     return null;
+  //   }
+  // };
+
+const transformImageToTensor = async (uri) => {
+  try {
+    console.log("Original Image URI:", uri);
+
+    // Convert the image to JPEG if it's not already
+    let manipulatedUri = uri;
+    if (!uri.endsWith('.jpg') && !uri.endsWith('.jpeg')) {
+      console.log("Converting image to JPEG...");
+      const manipulatedImage = await ImageManipulator.manipulateAsync(
+        uri,
+        [],
+        { format: ImageManipulator.SaveFormat.JPEG, compress: 1 }
+      );
+      manipulatedUri = manipulatedImage.uri;
+      console.log("Image converted to JPEG:", manipulatedUri);
+    }
+
+    // Read the image as base64 and prepare for tensor transformation
+    const img64 = await FileSystem.readAsStringAsync(manipulatedUri, { encoding: FileSystem.EncodingType.Base64 });
+    const imgBuffer = tf.util.encodeString(img64, 'base64').buffer;
+    const raw = new Uint8Array(imgBuffer);
+
+    // Decode the image to a tensor
+    let imgTensor = decodeJpeg(raw);
+
+    // Resize and normalize the tensor
+    imgTensor = tf.image.resizeNearestNeighbor(imgTensor, [224, 224]);
+    const scalar = tf.scalar(255);
+    const tensorScaled = imgTensor.div(scalar);
+    const img = tf.reshape(tensorScaled, [1, 224, 224, 3]);
+
+    console.log("Image tensor created:", img);
+    return img;
+  } catch (error) {
+    console.error("Error in transforming image to tensor:", error);
+    return null;
   }
+};
+
 
 
 const makePredictions = async ( batch, model, imagesTensor )=>{
   //.ts: const makePredictions = async (batch:number, model:tf.LayersModel,imagesTensor:tf.Tensor<tf.Rank>):Promise<tf.Tensor<tf.Rank>[]>=>{
   //cast output prediction to tensor
   const predictionsdata= model.predict(imagesTensor)
+  console.log("prediction done");
   //.ts: const predictionsdata:tf.Tensor = model.predict(imagesTensor) as tf.Tensor
   let pred = predictionsdata.split(batch) //split by batch size
   //return predictions 
   return pred
 }
 
-  export const getPredictions = async (image)=>{
+const getPredictions = async (image)=>{
     await tf.ready()
     const model = await loadModel() as tf.LayersModel
-    const tensor_image = await transformImageToTensor(image)
+    const tensor_image = await transformImageToTensor(image.uri)
     const predictions = await makePredictions(1, model, tensor_image)
     return predictions    
   }
@@ -89,8 +156,8 @@ export default function CustomImagePicker() {
       quality: 1,
     });
 
-    if (!result.canceled) {
-      setImage({ uri: result.assets[0].uri, filename: result.assets[0].fileName! });
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setImage({ uri: result.assets[0].uri, filename: result.assets[0].fileName || "" });
     }
   };
 
@@ -133,7 +200,9 @@ export default function CustomImagePicker() {
     const db = connectToDatabase();
     await tf.ready()
     const model = loadModel()
-    const tensorImage = await transformImageToTensor(image);
+    console.log("model loaded");
+    const tensorImage = await transformImageToTensor(image.uri);
+    console.log("image transformed");
     const predictions = await makePredictions(1, model, tensorImage);
     console.log(predictions);
     const imageRecord: ImageType = {
